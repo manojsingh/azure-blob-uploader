@@ -1,6 +1,5 @@
 
 # Getting Started
-
-Build the app using - 'mvn clean install'
-
-Run the app using -  './mvnw spring-boot:run'
+- Update the "azure.storage.connection-string" value in the application.propertied file
+- Build the app using - 'mvn clean install'
+- Run the app using -  './mvnw spring-boot:run'
