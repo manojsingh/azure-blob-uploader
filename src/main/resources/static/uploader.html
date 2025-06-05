@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Blob Uploader</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); max-width: 500px; margin: auto; }
+        h1 { color: #007bff; text-align: center; margin-bottom: 20px; }
+        .upload-options { display: flex; justify-content: center; margin-bottom: 20px; }
+        .upload-option { 
+            padding: 10px 20px; 
+            cursor: pointer;
+            background: #eee;
+            border: none;
+            margin: 0 5px;
+            border-radius: 4px;
+        }
+        .upload-option.active {
+            background: #007bff;
+            color: white;
+        }
+        .upload-form {
+            display: none;
+        }
+        .upload-form.active {
+            display: block;
+        }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="file"] { display: block; margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: calc(100% - 22px); }
+        input[type="text"] { display: block; margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: calc(100% - 22px); }
+        button { background-color: #28a745; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:hover { background-color: #218838; }
+        .message { margin-top: 15px; padding: 10px; border-radius: 4px; text-align: center; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .progress-bar { width: 100%; background-color: #e9ecef; border-radius: .25rem; margin-top: 10px; display: none; }
+        .progress-bar-fill { height: 20px; background-color: #007bff; width: 0%; border-radius: .25rem; text-align: center; color: white; line-height: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Upload File to Azure Blob Storage</h1>
+        
+        <div class="upload-options">
+            <button class="upload-option active" data-form="multipart-form">Standard Upload</button>
+            <button class="upload-option" data-form="base64-form">Base64 Upload</button>
+        </div>
+
+        <!-- Multipart Form Upload -->
+        <form id="multipart-form" class="upload-form active">
+            <div>
+                <label for="multipartFileInput">Choose file:</label>
+                <input type="file" id="multipartFileInput" name="file" required>
+            </div>
+            <div>
+                <label for="multipartBlobNameInput">Optional Blob Name (defaults to filename):</label>
+                <input type="text" id="multipartBlobNameInput" name="blobName" placeholder="e.g., my-custom-document.pdf">
+            </div>
+            <button type="submit">Upload</button>
+        </form>
+
+        <!-- Base64 Form Upload -->
+        <form id="base64-form" class="upload-form">
+            <div>
+                <label for="base64FileInput">Choose file:</label>
+                <input type="file" id="base64FileInput" required>
+            </div>
+            <div>
+                <label for="base64BlobNameInput">Optional Blob Name (defaults to filename):</label>
+                <input type="text" id="base64BlobNameInput" placeholder="e.g., my-custom-document.pdf">
+            </div>
+            <button type="submit">Upload</button>
+        </form>
+
+        <div id="progressBar" class="progress-bar">
+            <div id="progressBarFill" class="progress-bar-fill">0%</div>
+        </div>
+        <div id="messageArea" class="message" style="display:none;"></div>
+    </div>
+
+    <script>
+        const uploadOptions = document.querySelectorAll('.upload-option');
+        const uploadForms = document.querySelectorAll('.upload-form');
+        const multipartForm = document.getElementById('multipart-form');
+        const base64Form = document.getElementById('base64-form');
+        const messageArea = document.getElementById('messageArea');
+        const progressBar = document.getElementById('progressBar');
+        const progressBarFill = document.getElementById('progressBarFill');
+
+        // Toggle between upload methods
+        uploadOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                uploadOptions.forEach(opt => opt.classList.remove('active'));
+                uploadForms.forEach(form => form.classList.remove('active'));
+                option.classList.add('active');
+                document.getElementById(option.dataset.form).classList.add('active');
+                showMessage('', '', true); // Clear any existing messages
+            });
+        });
+
+        // Multipart Form Upload
+        multipartForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            showMessage('', '', true);
+            progressBar.style.display = 'none';
+            progressBarFill.style.width = '0%';
+            progressBarFill.textContent = '0%';
+
+            const file = document.getElementById('multipartFileInput').files[0];
+            if (!file) {
+                showMessage('Please select a file to upload.', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            const customBlobName = document.getElementById('multipartBlobNameInput').value.trim();
+            if (customBlobName) {
+                formData.append('blobName', customBlobName);
+            }
+
+            await uploadFile('/api/files/upload', formData);
+        });
+
+        // Base64 Form Upload
+        base64Form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            showMessage('', '', true);
+            progressBar.style.display = 'none';
+            progressBarFill.style.width = '0%';
+            progressBarFill.textContent = '0%';
+
+            const file = document.getElementById('base64FileInput').files[0];
+            if (!file) {
+                showMessage('Please select a file to upload.', 'error');
+                return;
+            }
+
+            try {
+                showMessage('Processing file...', 'info', false);
+                const base64Content = await readFileAsBase64(file);
+                const customBlobName = document.getElementById('base64BlobNameInput').value.trim() || file.name;
+
+                const requestBody = {
+                    fileName: customBlobName,
+                    contentType: file.type || 'application/octet-stream',
+                    base64Content: base64Content
+                };
+
+                await uploadFile('/api/files/upload/base64', requestBody, 'application/json');
+            } catch (error) {
+                console.error('Error processing file:', error);
+                showMessage(`Failed to process file: ${error.message}`, 'error');
+            }
+        });
+
+        // Generic file upload function
+        async function uploadFile(url, data, contentType = null) {
+            showMessage('Uploading...', 'info', false);
+            progressBar.style.display = 'block';
+
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', url, true);
+                
+                if (contentType) {
+                    xhr.setRequestHeader('Content-Type', contentType);
+                }
+
+                xhr.upload.onprogress = (event) => {
+                    if (event.lengthComputable) {
+                        const percentComplete = Math.round((event.loaded / event.total) * 100);
+                        progressBarFill.style.width = percentComplete + '%';
+                        progressBarFill.textContent = percentComplete + '%';
+                    }
+                };
+
+                xhr.onload = () => {
+                    progressBar.style.display = 'none';
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        const response = JSON.parse(xhr.responseText);
+                        let successMsg = `File uploaded successfully! Blob Name: ${response.blobName}`;
+                        if(response.blobUrl) {
+                            successMsg += `<br><a href="${response.blobUrl}" target="_blank">View Blob</a>`;
+                        }
+                        showMessage(successMsg, 'success', false);
+                        // Reset the appropriate form
+                        if (url.includes('base64')) {
+                            base64Form.reset();
+                        } else {
+                            multipartForm.reset();
+                        }
+                    } else {
+                        let errorMsg = `Upload failed: Status ${xhr.status}`;
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            errorMsg = `Upload failed: ${response.message || xhr.statusText}`;
+                        } catch (e) {
+                            // JSON parsing failed, use default error
+                        }
+                        showMessage(errorMsg, 'error', false);
+                    }
+                };
+
+                xhr.onerror = () => {
+                    progressBar.style.display = 'none';
+                    showMessage('Upload failed due to a network error or server issue.', 'error', false);
+                };
+
+                xhr.send(contentType ? JSON.stringify(data) : data);
+            } catch (error) {
+                progressBar.style.display = 'none';
+                console.error('Error during upload:', error);
+                showMessage(`Upload failed: ${error.message}`, 'error', false);
+            }
+        }
+
+        // Helper function to read file as base64
+        function readFileAsBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    // Remove the "data:mime/type;base64," prefix
+                    const base64String = reader.result.split(',')[1];
+                    resolve(base64String);
+                };
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function showMessage(message, type = 'info', autoHide = true) {
+            messageArea.innerHTML = message;
+            messageArea.className = `message ${type}`;
+            messageArea.style.display = message ? 'block' : 'none';
+            
+            if (autoHide && type !== 'info' && type !== 'success' && type !== 'error') {
+                setTimeout(() => {
+                    if (messageArea.innerHTML === message) {
+                        hideMessage();
+                    }
+                }, 7000);
+            }
+        }
+
+        function hideMessage() {
+            messageArea.style.display = 'none';
+            messageArea.innerHTML = '';
+        }
+    </script>
+</body>
+</html>
